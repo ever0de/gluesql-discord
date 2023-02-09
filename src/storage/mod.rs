@@ -1,28 +1,21 @@
 mod gluesql {
     pub use gluesql_core::result::Error;
-    pub use gluesql_core::result::{MutResult, Result};
+    pub use gluesql_core::result::Result;
 }
-pub mod schema;
-
-use std::str::FromStr;
 
 use async_trait::async_trait;
-use eyre::Context;
 use gluesql_core::{
-    ast::{ColumnOption, ColumnOptionDef},
+    ast::{ColumnDef, ColumnUniqueOption},
     data::Schema,
-    prelude::{Key, Row},
-    result::TrySelf,
-    store::{RowIter, Store, StoreMut},
+    prelude::Key,
+    store::{DataRow, RowIter, Store, StoreMut},
 };
 use serenity::{
     futures::TryStreamExt,
-    model::prelude::{ChannelId, GuildChannel, GuildId, MessageId, MessageType},
+    model::prelude::{GuildChannel, GuildId, MessageId, MessageType},
 };
 
 use crate::{utils, Discord};
-
-use self::schema::DiscordSchema;
 
 pub struct DiscordStorage {
     discord: Discord,
@@ -49,8 +42,8 @@ impl DiscordStorage {
         let cache = self.discord.cache();
         let content = message.content_safe(cache);
 
-        let schema = DiscordSchema::from_str(&content)?;
-        Ok(Some(schema.0))
+        let schema: Schema = utils::from_discord_json(&content)?;
+        Ok(Some(schema))
     }
 }
 
@@ -103,7 +96,7 @@ impl Store for DiscordStorage {
         Ok(schemas)
     }
 
-    async fn fetch_data(&self, channel_name: &str, key: &Key) -> gluesql::Result<Option<Row>> {
+    async fn fetch_data(&self, channel_name: &str, key: &Key) -> gluesql::Result<Option<DataRow>> {
         let channel_name = channel_name.to_lowercase();
         let message_id: u64 = match key {
             Key::Str(id) => id
@@ -129,7 +122,7 @@ impl Store for DiscordStorage {
         let cache = self.discord.cache();
         let content = message.content_safe(cache);
 
-        let row: Row = utils::from_discord_json(&content).into_storage_err()?;
+        let row: DataRow = utils::from_discord_json(&content).into_storage_err()?;
 
         Ok(Some(row))
     }
@@ -156,7 +149,7 @@ impl Store for DiscordStorage {
                 let cache = self.discord.cache();
                 let content = message.content_safe(cache);
 
-                let row: Row = utils::from_discord_json(&content).into_storage_err()?;
+                let row: DataRow = utils::from_discord_json(&content).into_storage_err()?;
                 let key = Key::Str(message.id.0.to_string());
 
                 gluesql::Result::Ok(Some((key, row)))
@@ -173,265 +166,193 @@ impl Store for DiscordStorage {
 
 #[async_trait(?Send)]
 impl StoreMut for DiscordStorage {
-    async fn insert_schema(self, schema: &Schema) -> gluesql::MutResult<Self, ()> {
+    async fn insert_schema(&mut self, schema: &Schema) -> gluesql::Result<()> {
         if schema.column_defs.iter().any(|column_def| {
-            column_def
-                .options
-                .iter()
-                .any(|ColumnOptionDef { option, .. }| {
-                    matches!(option, ColumnOption::Unique { is_primary: true })
-                })
+            column_def.iter().any(|ColumnDef { unique, .. }| {
+                matches!(unique, Some(ColumnUniqueOption { is_primary: true }))
+            })
         }) {
-            return Err((
-                self,
-                gluesql::Error::Storage("primary key is not supported".into()),
+            return Err(gluesql::Error::Storage(
+                "primary key is not supported".into(),
             ));
         }
 
-        let storage = self;
         let channel_name = &schema.table_name.to_lowercase();
 
-        let (storage, channel_id) = storage
+        let channel_id = self
             .discord
-            .get_channel_id(storage.storage_guild_id, channel_name)
+            .get_channel_id(self.storage_guild_id, channel_name)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
+            .into_storage_err()?;
 
-        let (storage, channel_id) = match channel_id {
-            Some(channel_id) => (storage, channel_id),
+        let channel_id = match channel_id {
+            Some(channel_id) => channel_id,
             None => {
-                let (storage, channel) = storage
+                let channel = self
                     .discord
-                    .create_channel(storage.storage_guild_id, |f| f.name(&schema.table_name))
+                    .create_channel(self.storage_guild_id, |f| f.name(&schema.table_name))
                     .await
-                    .into_storage_err()
-                    .try_self(storage)?;
+                    .into_storage_err()?;
 
-                (storage, channel.id)
+                channel.id
             }
         };
 
-        let (storage, pin_messages) = storage
-            .discord
-            .get_pins(channel_id)
-            .await
-            .into_storage_err()
-            .try_self(storage)?;
+        let pin_messages = self.discord.get_pins(channel_id).await.into_storage_err()?;
 
         if !pin_messages.is_empty() {
-            return Err((
-                storage,
-                gluesql::Error::Storage(
-                    format!("channel is already pinned: {channel_name}").into(),
-                ),
+            return Err(gluesql::Error::Storage(
+                format!("channel is already pinned: {channel_name}").into(),
             ));
         }
 
-        let schema = DiscordSchema(schema.clone());
-        let (storage, content) = utils::to_discord_json(&schema)
-            .into_storage_err()
-            .try_self(storage)?;
+        let content = utils::to_discord_json(&schema).into_storage_err()?;
 
-        let (storage, message) = storage
+        let message = self
             .discord
             .send_message(channel_id, content)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
+            .into_storage_err()?;
 
-        let (storage, _) = storage
-            .discord
+        self.discord
             .set_pin(channel_id, message.id)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
+            .into_storage_err()?;
 
-        Ok((storage, ()))
+        Ok(())
     }
 
-    async fn delete_schema(self, channel_name: &str) -> gluesql::MutResult<Self, ()> {
-        let storage = self;
+    async fn delete_schema(&mut self, channel_name: &str) -> gluesql::Result<()> {
         let channel_name = &channel_name.to_lowercase();
 
-        let (storage, channel_id) = storage
+        let channel_id = self
             .discord
-            .get_channel_id(storage.storage_guild_id, channel_name)
+            .get_channel_id(self.storage_guild_id, channel_name)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
-        let (storage, channel_id) = channel_id
-            .ok_or_else(|| gluesql::Error::Storage("delete_schema) not found channel".into()))
-            .try_self(storage)?;
+            .into_storage_err()?;
+        let channel_id = channel_id
+            .ok_or_else(|| gluesql::Error::Storage("delete_schema) not found channel".into()))?;
 
-        let (storage, _) = storage
-            .discord
+        self.discord
             .delete_channel(channel_id)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
+            .into_storage_err()?;
 
-        Ok((storage, ()))
+        Ok(())
     }
 
-    async fn append_data(self, channel_name: &str, rows: Vec<Row>) -> gluesql::MutResult<Self, ()> {
+    async fn append_data(&mut self, channel_name: &str, rows: Vec<DataRow>) -> gluesql::Result<()> {
         let storage = self;
         let channel_name = &channel_name.to_lowercase();
 
-        let (storage, channel_id) = storage
+        let channel_id = storage
             .discord
             .get_channel_id(storage.storage_guild_id, channel_name)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
-        let (storage, channel_id) = channel_id
-            .ok_or_else(|| gluesql::Error::Storage("append_data) not found channel".into()))
-            .try_self(storage)?;
+            .into_storage_err()?;
+        let channel_id = channel_id
+            .ok_or_else(|| gluesql::Error::Storage("append_data) not found channel".into()))?;
 
-        async fn append_row(
-            storage: &DiscordStorage,
-            channel_id: ChannelId,
-            row: Row,
-        ) -> eyre::Result<()> {
-            let content = utils::to_discord_json(&row)?;
+        for row in rows {
+            let content = utils::to_discord_json(&row).into_storage_err()?;
 
             storage
                 .discord
                 .send_message(channel_id, content)
                 .await
                 .into_storage_err()?;
-
-            Ok(())
         }
 
-        for row in rows {
-            if let Err(err) = append_row(&storage, channel_id, row)
-                .await
-                .into_storage_err()
-            {
-                return Err((storage, err));
-            }
-        }
-
-        Ok((storage, ()))
+        Ok(())
     }
 
     async fn insert_data(
-        self,
+        &mut self,
         channel_name: &str,
-        rows: Vec<(Key, Row)>,
-    ) -> gluesql::MutResult<Self, ()> {
-        let storage = self;
+        rows: Vec<(Key, DataRow)>,
+    ) -> gluesql::Result<()> {
         let channel_name = &channel_name.to_lowercase();
 
-        let (storage, channel_id) = storage
+        let channel_id = self
             .discord
-            .get_channel_id(storage.storage_guild_id, channel_name)
+            .get_channel_id(self.storage_guild_id, channel_name)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
-        let (storage, channel_id) = channel_id
-            .ok_or_else(|| gluesql::Error::Storage("insert_data) not found channel".into()))
-            .try_self(storage)?;
+            .into_storage_err()?;
+        let channel_id = channel_id
+            .ok_or_else(|| gluesql::Error::Storage("insert_data) not found channel".into()))?;
 
-        async fn update_or_insert_row(
-            storage: &DiscordStorage,
-            channel_id: ChannelId,
-            row: (Key, Row),
-        ) -> eyre::Result<()> {
+        for row in rows {
             let (key, row) = row;
 
             let key = match key {
                 Key::Str(key) => key,
-                _ => return Err(eyre::eyre!("invalid key {key:?}")),
+                _ => {
+                    return Err(gluesql::Error::Storage(
+                        eyre::eyre!("invalid key {key:?}").into(),
+                    ))
+                }
             };
 
-            let message_id = MessageId(key.parse().context("failed key parsing")?);
+            let message_id =
+                MessageId(key.parse().map_err(|_| {
+                    gluesql::Error::Storage("insert_data) failed key parsing".into())
+                })?);
 
-            let content = utils::to_discord_json(&row)?;
+            let content = utils::to_discord_json(&row).into_storage_err()?;
 
-            let message = storage
-                .discord
-                .get_message(channel_id, message_id)
-                .await
-                .ok();
+            let message = self.discord.get_message(channel_id, message_id).await.ok();
 
             match message {
                 Some(_) => {
-                    storage
-                        .discord
+                    self.discord
                         .edit_message(channel_id, message_id, content)
                         .await
                         .into_storage_err()?;
                 }
                 None => {
-                    storage
-                        .discord
+                    self.discord
                         .send_message(channel_id, content)
                         .await
                         .into_storage_err()?;
                 }
             }
-
-            Ok(())
         }
 
-        for row in rows {
-            if let Err(err) = update_or_insert_row(&storage, channel_id, row)
-                .await
-                .into_storage_err()
-            {
-                return Err((storage, err));
-            }
-        }
-
-        Ok((storage, ()))
+        Ok(())
     }
 
-    async fn delete_data(self, channel_name: &str, keys: Vec<Key>) -> gluesql::MutResult<Self, ()> {
-        let storage = self;
+    async fn delete_data(&mut self, channel_name: &str, keys: Vec<Key>) -> gluesql::Result<()> {
         let channel_name = &channel_name.to_lowercase();
 
-        let (storage, channel_id) = storage
+        let channel_id = self
             .discord
-            .get_channel_id(storage.storage_guild_id, channel_name)
+            .get_channel_id(self.storage_guild_id, channel_name)
             .await
-            .into_storage_err()
-            .try_self(storage)?;
-        let (storage, channel_id) = channel_id
-            .ok_or_else(|| gluesql::Error::Storage("delete_data) not found channel".into()))
-            .try_self(storage)?;
+            .into_storage_err()?;
+        let channel_id = channel_id
+            .ok_or_else(|| gluesql::Error::Storage("delete_data) not found channel".into()))?;
 
-        async fn delete_row(
-            storage: &DiscordStorage,
-            channel_id: ChannelId,
-            key: Key,
-        ) -> eyre::Result<()> {
+        for key in keys {
             let key = match key {
                 Key::Str(key) => key,
-                _ => return Err(eyre::eyre!("invalid key {key:?}")),
+                _ => {
+                    return Err(gluesql::Error::Storage(
+                        eyre::eyre!("invalid key {key:?}").into(),
+                    ))
+                }
             };
 
-            let message_id = MessageId(key.parse().context("failed key parsing")?);
+            let message_id =
+                MessageId(key.parse().map_err(|_| {
+                    gluesql::Error::Storage("delete_data) failed key parsing".into())
+                })?);
 
-            storage
-                .discord
+            self.discord
                 .delete_message(channel_id, message_id)
                 .await
                 .into_storage_err()?;
-
-            Ok(())
         }
 
-        for key in keys {
-            if let Err(err) = delete_row(&storage, channel_id, key)
-                .await
-                .into_storage_err()
-            {
-                return Err((storage, err));
-            }
-        }
-
-        Ok((storage, ()))
+        Ok(())
     }
 }

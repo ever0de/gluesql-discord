@@ -4,7 +4,7 @@ version = "0.1.0"
 edition = "2021"
 
 [dependencies]
-gluesql-core = "0.13"
+gluesql-core = { version = "0.13", git = "https://github.com/gluesql/gluesql.git", rev = "f511bedfb002bc7e3646359ff1e4430f824cf440" }
 async-trait = "0.1"
 serenity = { version = "0.11", default-features = false, features = [
 	"builder",
@@ -25,4 +25,4 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 color-eyre = "0.6"
 
 [dev-dependencies]
-test-suite = { package = "gluesql-test-suite", version = "0.13" }
+test-suite = { package = "gluesql-test-suite", version = "0.13", git = "https://github.com/gluesql/gluesql.git", rev = "f511bedfb002bc7e3646359ff1e4430f824cf440" }

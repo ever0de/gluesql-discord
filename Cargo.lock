@@ -641,8 +641,7 @@ checksum = "221996f774192f0f718773def8201c4ae31f02616a54ccfc2d358bb0e5cefdec"
 [[package]]
 name = "gluesql-core"
 version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "a75a1832c0c93b1fdd8e87a9c7b351751e31ac73c9b301790ce8be64239a97ae"
+source = "git+https://github.com/gluesql/gluesql.git?rev=f511bedfb002bc7e3646359ff1e4430f824cf440#f511bedfb002bc7e3646359ff1e4430f824cf440"
 dependencies = [
  "async-recursion",
  "async-trait",
@@ -656,6 +655,7 @@ dependencies = [
  "im-rc",
  "iter-enum",
  "itertools",
+ "rand",
  "regex",
  "rust_decimal",
  "serde",
@@ -685,8 +685,7 @@ dependencies = [
 [[package]]
 name = "gluesql-test-suite"
 version = "0.13.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "52f1cc9422bbc64a719f602e88d19fb6b3f09ba65f83cbf05fcc16570aa3acba"
+source = "git+https://github.com/gluesql/gluesql.git?rev=f511bedfb002bc7e3646359ff1e4430f824cf440#f511bedfb002bc7e3646359ff1e4430f824cf440"
 dependencies = [
  "async-trait",
  "bigdecimal",
@@ -694,14 +693,14 @@ dependencies = [
  "gluesql-core",
  "hex",
  "rust_decimal",
+ "serde_json",
  "uuid",
 ]
 
 [[package]]
 name = "gluesql-utils"
 version = "0.13.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "87fe38351aa3470b3cad6ea070169f9694650458ed97f4011a07e22cf9d97d9f"
+source = "git+https://github.com/gluesql/gluesql.git?rev=f511bedfb002bc7e3646359ff1e4430f824cf440#f511bedfb002bc7e3646359ff1e4430f824cf440"
 dependencies = [
  "futures",
  "indexmap",
@@ -1597,9 +1596,9 @@ checksum = "6e63cff320ae2c57904679ba7cb63280a3dc4613885beafb148ee7bf9aa9042d"
 
 [[package]]
 name = "sqlparser"
-version = "0.25.0"
+version = "0.30.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "0781f2b6bd03e5adf065c8e772b49eaea9f640d06a1b9130330fe8bd2563f4fd"
+checksum = "db67dc6ef36edb658196c3fef0464a80b53dbbc194a904e81f9bd4190f9ecc5b"
 dependencies = [
  "bigdecimal",
  "log",
