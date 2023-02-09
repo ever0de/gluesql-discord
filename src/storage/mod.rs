@@ -264,49 +264,12 @@ impl StoreMut for DiscordStorage {
             .ok_or_else(|| gluesql::Error::Storage("delete_schema) not found channel".into()))
             .try_self(storage)?;
 
-        let (storage, mut pin_messages) = storage
-            .discord
-            .get_pins(channel_id)
-            .await
-            .into_storage_err()
-            .try_self(storage)?;
-
-        if pin_messages.is_empty() {
-            return Err((
-                storage,
-                gluesql::Error::Storage(format!("channel is not pinned: {channel_name}").into()),
-            ));
-        }
-
-        let pin_message = pin_messages.pop().unwrap();
-
         let (storage, _) = storage
             .discord
-            .delete_message(channel_id, pin_message.id)
+            .delete_channel(channel_id)
             .await
             .into_storage_err()
             .try_self(storage)?;
-
-        let (storage, message_ids) = storage
-            .discord
-            .latest_message_iter(channel_id)
-            .await
-            .map_ok(|message| message.id)
-            .try_collect::<Vec<_>>()
-            .await
-            .into_storage_err()
-            .try_self(storage)?;
-
-        for message_id in message_ids {
-            if let Err(err) = storage
-                .discord
-                .delete_message(channel_id, message_id)
-                .await
-                .into_storage_err()
-            {
-                return Err((storage, err));
-            }
-        }
 
         Ok((storage, ()))
     }

@@ -12,6 +12,7 @@ async fn main() {
     let storage = discord.into_storage(guild_name).await.unwrap();
     let mut glue = Glue::new(storage);
 
+    let now = std::time::Instant::now();
     glue.execute_async("CREATE TABLE User (id Int, name Text);")
         .await
         .unwrap();
@@ -20,5 +21,9 @@ async fn main() {
         .await
         .unwrap();
 
-    glue.execute_async("SELECT * FROM User;").await.unwrap();
+    let payloads = glue.execute_async("SELECT * FROM User;").await.unwrap();
+    println!("{:?}", payloads[0]);
+
+    glue.execute_async("DROP TABLE User;").await.unwrap();
+    println!("{}ms", now.elapsed().as_millis());
 }

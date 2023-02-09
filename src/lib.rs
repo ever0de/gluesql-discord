@@ -10,7 +10,7 @@ use serenity::{
     futures::Stream,
     http::{CacheHttp, Http},
     model::{
-        prelude::{ChannelId, GuildChannel, GuildId, GuildInfo, Message, MessageId},
+        prelude::{Channel, ChannelId, GuildChannel, GuildId, GuildInfo, Message, MessageId},
         user::CurrentUser,
     },
     prelude::GatewayIntents,
@@ -209,10 +209,6 @@ impl Discord {
         Ok(channels
             .into_iter()
             .find_map(|channel| (channel.name == channel_name.as_ref()).then_some(channel.id)))
-        // .ok_or(eyre::eyre!(
-        //     "not found channel_name: {}",
-        //     channel_name.as_ref()
-        // ))
     }
 
     /// required Manage Channels permission
@@ -232,6 +228,15 @@ impl Discord {
             .create_channel(http, builder)
             .await
             .context("failed create_channel")
+    }
+
+    pub async fn delete_channel(&self, channel_id: ChannelId) -> eyre::Result<Channel> {
+        let http = self.http();
+
+        channel_id
+            .delete(http)
+            .await
+            .context("failed delete_channel")
     }
 }
 
