@@ -1,7 +1,7 @@
 pub mod storage;
 pub mod utils;
 
-use std::sync::Arc;
+use std::{collections::HashMap, sync::Arc};
 
 use eyre::Context;
 use serenity::{
@@ -58,7 +58,7 @@ impl Discord {
         &self,
         channel_id: ChannelId,
     ) -> impl Stream<Item = serenity::Result<Message>> + '_ {
-        let http = self.client.cache_and_http.http();
+        let http = self.http();
         Box::pin(channel_id.messages_iter(http))
     }
 
@@ -66,8 +66,8 @@ impl Discord {
         self.client.cache_and_http.http()
     }
 
-    pub fn cache(&self) -> &Arc<Cache> {
-        &self.client.cache_and_http.cache
+    pub fn cache(&self) -> Arc<Cache> {
+        Arc::clone(&self.client.cache_and_http.cache)
     }
 
     pub async fn get_message(
@@ -179,7 +179,7 @@ impl Discord {
     pub async fn get_guild_info(&self, guild_name: impl AsRef<str>) -> eyre::Result<GuildInfo> {
         let guild = self
             .current_user
-            .guilds(&self.client.cache_and_http.http())
+            .guilds(&self.http())
             .await
             .context("failed get_guild_info")?
             .into_iter()
@@ -189,14 +189,14 @@ impl Discord {
         Ok(guild)
     }
 
-    pub async fn get_channels(&self, guild_id: GuildId) -> eyre::Result<Vec<GuildChannel>> {
-        let channels = self
-            .http()
-            .get_channels(guild_id.into())
+    pub async fn get_channels(
+        &self,
+        guild_id: GuildId,
+    ) -> eyre::Result<HashMap<ChannelId, GuildChannel>> {
+        guild_id
+            .channels(&self.http())
             .await
-            .context("failed get_channels")?;
-
-        Ok(channels)
+            .context("failed get_channels")
     }
 
     pub async fn get_channel_id(
@@ -206,9 +206,9 @@ impl Discord {
     ) -> eyre::Result<Option<ChannelId>> {
         let channels = self.get_channels(guild_id).await?;
 
-        Ok(channels
-            .into_iter()
-            .find_map(|channel| (channel.name == channel_name.as_ref()).then_some(channel.id)))
+        Ok(channels.into_iter().find_map(|(channel_id, channel)| {
+            (channel.name == channel_name.as_ref()).then_some(channel_id)
+        }))
     }
 
     /// required Manage Channels permission

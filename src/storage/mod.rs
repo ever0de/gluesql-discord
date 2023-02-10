@@ -6,8 +6,9 @@ mod gluesql {
 use async_trait::async_trait;
 use gluesql_core::{
     ast::{ColumnDef, ColumnUniqueOption},
+    chrono::Utc,
     data::Schema,
-    prelude::Key,
+    prelude::{Key, Value},
     store::{DataRow, RowIter, Store, StoreMut},
 };
 use serenity::{
@@ -30,20 +31,28 @@ impl DiscordStorage {
         }
     }
 
-    pub async fn get_schema(&self, channel: GuildChannel) -> eyre::Result<Option<Schema>> {
+    pub async fn get_schema(&self, channel: GuildChannel) -> eyre::Result<Schema> {
         let pins = self.discord.get_pins(channel.id).await?;
 
         let message = pins.into_iter().next();
         let message = match message {
             Some(msg) => msg,
-            None => return Ok(None),
+            None => {
+                return Ok(Schema {
+                    table_name: channel.name,
+                    column_defs: None,
+                    indexes: vec![],
+                    engine: None,
+                    created: Utc::now().naive_utc(),
+                })
+            }
         };
 
         let cache = self.discord.cache();
         let content = message.content_safe(cache);
 
         let schema: Schema = utils::from_discord_json(&content)?;
-        Ok(Some(schema))
+        Ok(schema)
     }
 }
 
@@ -62,18 +71,22 @@ impl Store for DiscordStorage {
     async fn fetch_schema(&self, channel_name: &str) -> gluesql::Result<Option<Schema>> {
         let channel_name = channel_name.to_lowercase();
 
-        let channels = self
+        let channel = self
             .discord
             .get_channels(self.storage_guild_id)
             .await
-            .into_storage_err()?;
-
-        let channel = channels
+            .into_storage_err()?
             .into_iter()
-            .find(|channel| channel.name == channel_name);
+            .find_map(|(_, channel)| {
+                if channel.name == channel_name {
+                    Some(channel)
+                } else {
+                    None
+                }
+            });
 
         match channel {
-            Some(channel) => self.get_schema(channel).await.into_storage_err(),
+            Some(channel) => self.get_schema(channel).await.into_storage_err().map(Some),
             None => Ok(None),
         }
     }
@@ -86,11 +99,9 @@ impl Store for DiscordStorage {
             .into_storage_err()?;
 
         let mut schemas = Vec::new();
-        for channel in channels {
+        for (_channel_id, channel) in channels {
             let schema = self.get_schema(channel).await.into_storage_err()?;
-            if let Some(schema) = schema {
-                schemas.push(schema);
-            }
+            schemas.push(schema);
         }
 
         Ok(schemas)
@@ -122,8 +133,9 @@ impl Store for DiscordStorage {
         let cache = self.discord.cache();
         let content = message.content_safe(cache);
 
-        let row: DataRow = utils::from_discord_json(&content).into_storage_err()?;
-
+        let row: DataRow = utils::from_discord_json(&content).unwrap_or(DataRow::Map(
+            [("content".to_owned(), Value::Str(content))].into(),
+        ));
         Ok(Some(row))
     }
 
@@ -148,10 +160,12 @@ impl Store for DiscordStorage {
                 let cache = self.discord.cache();
                 let content = message.content_safe(cache);
 
-                let row: DataRow = utils::from_discord_json(&content).into_storage_err()?;
+                let row: DataRow = utils::from_discord_json(&content).unwrap_or(DataRow::Map(
+                    [("content".to_owned(), Value::Str(content))].into(),
+                ));
                 let key = Key::Str(message.id.0.to_string());
 
-                gluesql::Result::Ok(Some((key, row)))
+                Ok(Some((key, row)))
             })
             .try_collect::<Vec<_>>()
             .await
