@@ -17,5 +17,8 @@ However, if you retrieve data using this project and save it separately or perfo
 
 ## Result Images
 
+- Example of reading discord messages into sql
+![discord-message](./assets/read-discord-message.png)
+
 ![insert](./assets/insert.png)
 ![select](./assets/select.png)
