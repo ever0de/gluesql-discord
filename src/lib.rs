@@ -23,9 +23,15 @@ pub struct Discord {
 }
 
 impl Discord {
-    /// ### Required Discord Bot Settings
+    /// ### Required Discord Bot Settings(`/oauth2/url-generator`)
     ///
-    /// Privileged Gateway Intents: [Server Members Intent, Message Content Intent]
+    /// SCOPES
+    ///     - bot
+    ///
+    /// BOT PERMISSIONS
+    ///     - Manage Channels
+    ///     - Send Messages
+    ///     - Manage Messages
     pub async fn new(token: impl AsRef<str>) -> Self {
         let client = ClientBuilder::new(token.as_ref(), GatewayIntents::MESSAGE_CONTENT)
             .await
