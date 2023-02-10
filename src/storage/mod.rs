@@ -138,8 +138,7 @@ impl Store for DiscordStorage {
 
         let messages = self
             .discord
-            .latest_message_iter(channel_id)
-            .await
+            .latest_message_stream(channel_id)
             .map_ok(|message| {
                 let message = match message.kind {
                     MessageType::Regular if !message.pinned => message,

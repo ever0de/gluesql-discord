@@ -54,7 +54,7 @@ impl Discord {
         Self::new(std::env::var("DISCORD_BOT_TOKEN").unwrap()).await
     }
 
-    pub async fn latest_message_iter(
+    pub fn latest_message_stream(
         &self,
         channel_id: ChannelId,
     ) -> impl Stream<Item = serenity::Result<Message>> + '_ {
@@ -308,7 +308,7 @@ mod tests {
 
         let guild_id = db.get_guild_info("개발자 모임").await.unwrap().id;
         let channel_id = db.get_channel_id(guild_id, "일반").await.unwrap().unwrap();
-        let mut messages = db.latest_message_iter(channel_id).await.take(2);
+        let mut messages = db.latest_message_stream(channel_id).take(2);
 
         while let Some(messages) = messages.next().await {
             println!("{:#?}", messages.unwrap());
