@@ -1,5 +1,3 @@
-use std::fmt::Debug;
-
 use serde::{de::DeserializeOwned, Serialize};
 
 pub fn to_discord_json<T: Serialize>(data: &T) -> eyre::Result<String> {
@@ -13,7 +11,7 @@ pub fn to_discord_json<T: Serialize>(data: &T) -> eyre::Result<String> {
     ))
 }
 
-pub fn from_discord_json<T: DeserializeOwned + Debug>(text: &str) -> eyre::Result<T> {
+pub fn from_discord_json<T: DeserializeOwned>(text: &str) -> eyre::Result<T> {
     let text = text.trim();
     let text = text
         .strip_prefix(r#"```json"#)
