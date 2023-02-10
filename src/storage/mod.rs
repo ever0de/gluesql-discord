@@ -16,7 +16,7 @@ use serenity::{
     model::prelude::{GuildChannel, GuildId, MessageId, MessageType},
 };
 
-use crate::{utils, Discord};
+use crate::{discord::Discord, utils};
 
 pub struct DiscordStorage {
     discord: Discord,
