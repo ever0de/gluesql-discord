@@ -23,6 +23,8 @@ serde = "1"
 serde_json = "1"
 tokio = { version = "1", features = ["rt-multi-thread", "macros"] }
 color-eyre = "0.6"
+tracing = "0.1"
+tracing-subscriber = "0.3"
 
 [dev-dependencies]
 test-suite = { package = "gluesql-test-suite", version = "0.13", git = "https://github.com/gluesql/gluesql.git", rev = "f511bedfb002bc7e3646359ff1e4430f824cf440" }

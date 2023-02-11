@@ -2,10 +2,10 @@ use std::{collections::HashMap, sync::Arc};
 
 use eyre::Context;
 use serenity::{
-    builder::{CreateChannel, GetMessages},
-    client::{Cache, ClientBuilder},
+    builder::CreateChannel,
+    client::ClientBuilder,
     futures::Stream,
-    http::{CacheHttp, Http},
+    http::{CacheHttp, Http, HttpBuilder},
     model::{
         prelude::{Channel, ChannelId, GuildChannel, GuildId, GuildInfo, Message, MessageId},
         user::CurrentUser,
@@ -14,7 +14,7 @@ use serenity::{
     Client,
 };
 
-use crate::storage;
+use crate::{debug, storage};
 
 pub struct Discord {
     pub client: Client,
@@ -32,7 +32,9 @@ impl Discord {
     ///     - Send Messages
     ///     - Manage Messages
     pub async fn new(token: impl AsRef<str>) -> Self {
-        let client = ClientBuilder::new(token.as_ref(), GatewayIntents::MESSAGE_CONTENT)
+        let http = HttpBuilder::new(token.as_ref()).build();
+
+        let client = ClientBuilder::new_with_http(http, GatewayIntents::MESSAGE_CONTENT)
             .await
             .expect("check bot token / failed create client");
 
@@ -71,7 +73,7 @@ impl Discord {
         self.client.cache_and_http.http()
     }
 
-    pub fn cache(&self) -> Arc<Cache> {
+    pub fn serenity_cache(&self) -> Arc<serenity::cache::Cache> {
         Arc::clone(&self.client.cache_and_http.cache)
     }
 
@@ -80,43 +82,34 @@ impl Discord {
         channel_id: ChannelId,
         message_id: MessageId,
     ) -> eyre::Result<Message> {
-        self.http()
-            .get_message(channel_id.into(), message_id.into())
-            .await
-            .context("failed get_message")
-    }
-
-    pub async fn get_messages(
-        &self,
-        channel_id: ChannelId,
-        builder: impl FnOnce(&mut GetMessages) -> &mut GetMessages,
-    ) -> eyre::Result<Vec<Message>> {
-        let http = self.http();
-
-        channel_id
-            .messages(http, builder)
-            .await
-            .context("failed get_messages")
+        debug::time!("get_message", {
+            self.http()
+                .get_message(channel_id.into(), message_id.into())
+                .await
+                .context("failed get_message")
+        })
     }
 
     pub async fn get_pins(&self, channel_id: ChannelId) -> eyre::Result<Vec<Message>> {
-        let http = self.http();
-
-        http.get_pins(channel_id.into())
-            .await
-            .context("failed get_pins")
+        debug::time!("get_pins", {
+            self.http()
+                .get_pins(channel_id.into())
+                .await
+                .context("failed get_pins")
+        })
     }
 
     pub async fn set_pin(&self, channel_id: ChannelId, message_id: MessageId) -> eyre::Result<()> {
-        let http = self.http();
-
-        http.pin_message(
-            channel_id.into(),
-            message_id.into(),
-            Some("add table schema"),
-        )
-        .await
-        .context("failed set_pin")
+        debug::time!("set_pin", {
+            self.http()
+                .pin_message(
+                    channel_id.into(),
+                    message_id.into(),
+                    Some("add table schema"),
+                )
+                .await
+                .context("failed set_pin")
+        })
     }
 
     pub async fn set_unpin(
@@ -124,15 +117,16 @@ impl Discord {
         channel_id: ChannelId,
         message_id: MessageId,
     ) -> eyre::Result<()> {
-        let http = self.http();
-
-        http.unpin_message(
-            channel_id.into(),
-            message_id.into(),
-            Some("remove table schema"),
-        )
-        .await
-        .context("failed set_unpin")
+        debug::time!("set_unpin", {
+            self.http()
+                .unpin_message(
+                    channel_id.into(),
+                    message_id.into(),
+                    Some("remove table schema"),
+                )
+                .await
+                .context("failed set_unpin")
+        })
     }
 
     pub async fn send_message(
@@ -140,15 +134,12 @@ impl Discord {
         channel_id: ChannelId,
         content: impl ToString,
     ) -> eyre::Result<Message> {
-        let http = self.http();
-
-        channel_id
-            .send_message(http, |m| {
-                m.content(content);
-                m
-            })
-            .await
-            .context("failed send_message")
+        debug::time!("send_message", {
+            channel_id
+                .send_message(self.http(), |m| m.content(content))
+                .await
+                .context("failed send_message")
+        })
     }
 
     pub async fn edit_message(
@@ -157,15 +148,12 @@ impl Discord {
         message_id: impl Into<MessageId>,
         content: impl ToString,
     ) -> eyre::Result<Message> {
-        let http = self.http();
-
-        channel_id
-            .edit_message(http, message_id, |m| {
-                m.content(content);
-                m
-            })
-            .await
-            .context("failed edit_message")
+        debug::time!("edit_message", {
+            channel_id
+                .edit_message(self.http(), message_id, |m| m.content(content))
+                .await
+                .context("failed edit_message")
+        })
     }
 
     pub async fn delete_message(
@@ -173,35 +161,36 @@ impl Discord {
         channel_id: ChannelId,
         message_id: impl Into<MessageId>,
     ) -> eyre::Result<()> {
-        let http = self.http();
-
-        channel_id
-            .delete_message(http, message_id)
-            .await
-            .context("failed delete_message")
+        debug::time!("delete_message", {
+            channel_id
+                .delete_message(self.http(), message_id)
+                .await
+                .context("failed delete_message")
+        })
     }
 
     pub async fn get_guild_info(&self, guild_name: impl AsRef<str>) -> eyre::Result<GuildInfo> {
-        let guild = self
-            .current_user
-            .guilds(&self.http())
-            .await
-            .context("failed get_guild_info")?
-            .into_iter()
-            .find(|guild| guild.name == guild_name.as_ref())
-            .ok_or(eyre::eyre!("not found guild_name: {}", guild_name.as_ref()))?;
-
-        Ok(guild)
+        debug::time!("get_guild_info", {
+            self.current_user
+                .guilds(&self.http())
+                .await
+                .context("failed get_guild_info")?
+                .into_iter()
+                .find(|guild| guild.name == guild_name.as_ref())
+                .ok_or(eyre::eyre!("not found guild_name: {}", guild_name.as_ref()))
+        })
     }
 
     pub async fn get_channels(
         &self,
         guild_id: GuildId,
     ) -> eyre::Result<HashMap<ChannelId, GuildChannel>> {
-        guild_id
-            .channels(&self.http())
-            .await
-            .context("failed get_channels")
+        debug::time!("get_channels", {
+            guild_id
+                .channels(&self.http())
+                .await
+                .context("failed get_channels")
+        })
     }
 
     pub async fn get_channel_id(
@@ -209,11 +198,13 @@ impl Discord {
         guild_id: GuildId,
         channel_name: impl AsRef<str>,
     ) -> eyre::Result<Option<ChannelId>> {
-        let channels = self.get_channels(guild_id).await?;
+        debug::time!("get_channel_id", {
+            let channels = self.get_channels(guild_id).await?;
 
-        Ok(channels.into_iter().find_map(|(channel_id, channel)| {
-            (channel.name == channel_name.as_ref()).then_some(channel_id)
-        }))
+            Ok(channels.into_iter().find_map(|(channel_id, channel)| {
+                (channel.name == channel_name.as_ref()).then_some(channel_id)
+            }))
+        })
     }
 
     /// required Manage Channels permission
@@ -222,26 +213,28 @@ impl Discord {
         guild_id: GuildId,
         builder: impl FnOnce(&mut CreateChannel) -> &mut CreateChannel,
     ) -> eyre::Result<GuildChannel> {
-        let http = self.http();
+        debug::time!("create_channel", {
+            let http = self.http();
 
-        let guild = http
-            .get_guild(guild_id.into())
-            .await
-            .context("failed get_guild")?;
+            let guild = http
+                .get_guild(guild_id.into())
+                .await
+                .context("failed get_guild")?;
 
-        guild
-            .create_channel(http, builder)
-            .await
-            .context("failed create_channel")
+            guild
+                .create_channel(http, builder)
+                .await
+                .context("failed create_channel")
+        })
     }
 
     pub async fn delete_channel(&self, channel_id: ChannelId) -> eyre::Result<Channel> {
-        let http = self.http();
-
-        channel_id
-            .delete(http)
-            .await
-            .context("failed delete_channel")
+        debug::time!("delete_channel", {
+            channel_id
+                .delete(self.http())
+                .await
+                .context("failed delete_channel")
+        })
     }
 }
 
@@ -319,18 +312,6 @@ mod tests {
             println!("{:#?}", messages.unwrap());
             println!()
         }
-    }
-
-    #[ignore]
-    #[tokio::test]
-    async fn channel_messages() {
-        let db = db().await;
-
-        let guild_id = db.get_guild_info("개발자 모임").await.unwrap().id;
-        let channel_id = db.get_channel_id(guild_id, "일반").await.unwrap().unwrap();
-
-        let messages = db.get_messages(channel_id, |l| l).await.unwrap();
-        println!("{:#?}", messages[0])
     }
 
     #[ignore]
